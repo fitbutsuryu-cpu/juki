@@ -3857,7 +3857,7 @@ function startListeners(){
                 extra.containerNo=c.name;
               }
             }
-            await sendTeamsNotify(c.name, r.enterTime, c.type, extra);
+            // Teams通知は住宅機器版では無効 // await sendTeamsNotify(c.name, r.enterTime, c.type, extra);
           }
         }catch(e){
           console.error('Teams通知処理エラー:',e);
