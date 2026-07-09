@@ -312,50 +312,17 @@ canvas.sc{width:100%;height:200px;border:1.5px solid var(--bd);border-radius:var
 @media print{
   body>*:not(#print-area){display:none !important;}
   #print-area{display:block !important;}
+  body{background:none !important;min-height:0 !important;}
   table{width:100%;border-collapse:collapse;font-size:13px;}
   th{background:#f0f0f0 !important;padding:7px 8px;border:1px solid #999;font-weight:700;-webkit-print-color-adjust:exact;}
   td{padding:8px 8px;border:1px solid #999;line-height:1.4;}
 
-  /* デフォルト：守衛連絡リスト用 */
+  /* 守衛連絡リスト用 */
   @page{margin:8mm 10mm;}
   .guard-print-wrap{padding:0;}
   .guard-print-title{font-size:18px;font-weight:700;margin-bottom:10px;}
   .guard-print-section{margin-bottom:14px;}
   .guard-print-section-title{font-size:14px;font-weight:700;border-bottom:2px solid #333;padding-bottom:3px;margin-bottom:5px;}
-
-  // QR印刷専用ページ（A5横サイズ・左右2分割）
-  .qr-print-page{
-    width:100%;
-    height:100%;
-    display:flex;
-    flex-direction:row;
-    align-items:stretch;
-    gap:0;
-    page-break-after:avoid;
-    box-sizing:border-box;
-  }
-  .qr-print-left{
-    flex:1;
-    display:flex;
-    flex-direction:column;
-    justify-content:center;
-    padding:8mm 8mm 8mm 0;
-    border-right:2px solid #CBD5E1;
-  }
-  .qr-print-title{font-size:13px;font-weight:700;color:#64748B;margin-bottom:6mm;letter-spacing:1px;}
-  .qr-print-carrier{font-size:28px;font-weight:700;color:#065A82;margin-bottom:6mm;line-height:1.2;}
-  .qr-print-facts{font-size:13px;color:#475569;line-height:2.2;}
-  .qr-print-hint{font-size:11px;color:#94A3B8;margin-top:6mm;line-height:1.6;border-top:1px solid #E2E8F0;padding-top:4mm;}
-  .qr-print-right{
-    flex:1;
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-    justify-content:center;
-    padding:8mm 0 8mm 8mm;
-  }
-  .qr-print-img{width:70mm;height:70mm;}
-  .qr-print-token{font-size:7px;color:#CBD5E1;margin-top:3mm;text-align:center;word-break:break-all;max-width:70mm;}
 }
 #print-area{display:none;}
 </style>
@@ -3857,7 +3824,7 @@ function startListeners(){
                 extra.containerNo=c.name;
               }
             }
-            // Teams通知は住宅機器版では無効 // await sendTeamsNotify(c.name, r.enterTime, c.type, extra);
+            await sendTeamsNotify(c.name, r.enterTime, c.type, extra);
           }
         }catch(e){
           console.error('Teams通知処理エラー:',e);
@@ -3893,7 +3860,7 @@ function startListeners(){
   onValue(ref(db,'.info/connected'),snap=>setConn(snap.val()));
 }
 // ===== Teams通知（Power Automate経由） =====
-const TEAMS_WEBHOOK_URL=''; // 別事業部用：必要に応じてTeams WebhookのURLを設定してください
+const TEAMS_WEBHOOK_URL=''; // 住宅機器版：Teams通知無効
 
 async function sendTeamsNotify(carrierName, enterTime, type='', extra={}){
   if(!TEAMS_WEBHOOK_URL)return;
@@ -4553,109 +4520,86 @@ async function showQRPrintPreview(token, carrierName, date){
   const wh=WHs.find(w=>w.id===CWH);
   const whName=wh?wh.name:'';
 
-  // QRコードをcanvasに生成→DataURLに変換
+  // QRコードを生成
   let qrDataUrl='';
   try{
-    if(typeof QRCode==='undefined'){
-      throw new Error('QRCodeライブラリが読み込まれていません');
-    }
+    if(typeof QRCode==='undefined') throw new Error('QRCodeライブラリが読み込まれていません');
     const qrCanvas=document.createElement('canvas');
     await QRCode.toCanvas(qrCanvas, signUrl, { width:500, margin:2, errorCorrectionLevel:'H' });
     qrDataUrl=qrCanvas.toDataURL('image/png');
   }catch(e){
-    console.error('QRコード生成エラー:',e);
     toast('⚠️ QRコード生成に失敗しました: '+e.message);
     return;
   }
 
-  const printHTML=`<!DOCTYPE html>
-<html><head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>持込確認QR — ${esc(carrierName)}</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-@page{size:A5 landscape;margin:10mm;}
-html,body{width:100%;height:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-body{font-family:-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif;}
-.page{
-  width:100%;height:100%;
-  display:flex;flex-direction:row;
-  align-items:center;
-}
-.left{
-  flex:1;
-  display:flex;flex-direction:column;justify-content:center;
-  padding:0 10mm 0 0;
-  border-right:2px solid #CBD5E1;
-  height:100%;
-}
-.title{font-size:10px;color:#94A3B8;margin-bottom:6mm;letter-spacing:1px;}
-.carrier{font-size:30px;font-weight:700;color:#065A82;margin-bottom:6mm;line-height:1.2;padding-bottom:5mm;border-bottom:1.5px solid #E2E8F0;}
-.facts{font-size:13px;color:#475569;line-height:2.5;}
-.hint{font-size:11px;color:#94A3B8;margin-top:7mm;line-height:1.8;}
-.right{
-  flex:1;
-  display:flex;flex-direction:column;
-  align-items:center;justify-content:center;
-  padding:0 0 0 10mm;
-  height:100%;
-}
-.right img{width:82mm;height:82mm;}
-.token{font-size:7px;color:#CBD5E1;margin-top:4mm;word-break:break-all;text-align:center;max-width:82mm;}
-/* 画面表示用（印刷ボタン） */
-.print-btn{
-  position:fixed;bottom:20px;right:20px;
-  padding:14px 28px;background:#065A82;color:#fff;
-  border:none;border-radius:10px;font-size:16px;font-weight:700;
-  cursor:pointer;font-family:inherit;
-  box-shadow:0 4px 12px rgba(0,0,0,.2);
-}
-@media print{.print-btn{display:none;}}
-</style>
-</head><body>
-<div class="page">
-  <div class="left">
-    <div class="title">持込確認サイン用QRコード — ALINCO LOGITIME</div>
-    <div class="carrier">${esc(carrierName)}</div>
-    <div class="facts">
-      🏭&nbsp;倉庫：${esc(whName)}<br>
-      📅&nbsp;日付：${esc(date)}<br>
-      🕐&nbsp;発行：${nowTime()}
-    </div>
-    <div class="hint">
-      右のQRコードをスマートフォンでスキャンし、<br>
-      受領確認のサインをお願いします。
-    </div>
-  </div>
-  <div class="right">
-    <img src="${qrDataUrl}">
-    <div class="token">${esc(token)}</div>
-  </div>
-</div>
-<button class="print-btn" onclick="window.print()">🖨️ 印刷する</button>
-</body></html>`;
+  // 既存のオーバーレイを削除
+  const existing=document.getElementById('qr-print-overlay');
+  if(existing) existing.remove();
 
-  // 新しいウィンドウで開く（iPad/PC両対応）
-  const printWin=window.open('','_blank');
-  if(!printWin){
-    toast('⚠️ ポップアップがブロックされています。ブラウザの設定で許可してください。');
-    return;
-  }
-  printWin.document.open();
-  printWin.document.write(printHTML);
-  printWin.document.close();
+  // オーバーレイを作成（メイン画面の上に全画面表示）
+  const overlay=document.createElement('div');
+  overlay.id='qr-print-overlay';
+  overlay.style.cssText='position:fixed;inset:0;background:#fff;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px 20px 100px;overflow-y:auto;';
 
-  // 画像読み込み完了を待ってから自動印刷（PCのみ・iPadは手動ボタンで対応）
-  const isIPad=/iPad|Macintosh/.test(navigator.userAgent)&&navigator.maxTouchPoints>1;
-  const isMobile=/iPhone|Android/.test(navigator.userAgent);
-  if(!isIPad&&!isMobile){
-    // PCの場合は自動で印刷ダイアログを開く
-    printWin.addEventListener('load',()=>{
-      setTimeout(()=>printWin.print(),500);
-    });
-  }
-  // iPadはページ内の「🖨️ 印刷する」ボタンで手動印刷
+  overlay.innerHTML=`
+    <div style="width:100%;max-width:400px;display:flex;flex-direction:column;align-items:center;">
+      <div style="width:100%;border-bottom:2px solid #000;padding-bottom:12px;margin-bottom:12px;">
+        <div style="font-size:10px;color:#333;margin-bottom:6px;letter-spacing:1px;">持込確認サイン用QRコード — ALINCO LOGITIME</div>
+        <div style="font-size:22px;font-weight:700;color:#000;margin-bottom:6px;">${esc(carrierName)}</div>
+        <div style="font-size:12px;color:#000;line-height:2.0;">
+          🏭&nbsp;倉庫：${esc(whName)}<br>
+          📅&nbsp;日付：${esc(date)}<br>
+          🕐&nbsp;発行：${nowTime()}
+        </div>
+        <div style="font-size:10px;color:#333;margin-top:8px;line-height:1.6;">下のQRコードをスマートフォンでスキャンし、受領確認のサインをお願いします。</div>
+      </div>
+      <img src="${qrDataUrl}" style="width:200px;height:200px;margin-bottom:8px;">
+      <div style="font-size:7px;color:#666;word-break:break-all;text-align:center;max-width:200px;">${esc(token)}</div>
+    </div>
+    <div style="position:fixed;bottom:20px;left:0;right:0;display:flex;gap:12px;justify-content:center;padding:0 20px;">
+      <button id="qr-back-btn" style="flex:1;max-width:160px;padding:16px;background:#F1F5F9;color:#475569;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;">← 戻る</button>
+      <button id="qr-print-btn" style="flex:1;max-width:200px;padding:16px;background:#065A82;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:700;cursor:pointer;font-family:inherit;">🖨️ 印刷する</button>
+    </div>`;
+
+  document.body.appendChild(overlay);
+
+  // 戻るボタン
+  document.getElementById('qr-back-btn').onclick=()=>overlay.remove();
+
+  // 印刷ボタン
+  document.getElementById('qr-print-btn').onclick=()=>{
+    const printArea=document.getElementById('print-area');
+    printArea.innerHTML=`
+    <div class="qp">
+      <div class="ql">
+        <div class="qt">持込確認サイン用QRコード — ALINCO LOGITIME</div>
+        <div class="qc">${esc(carrierName)}</div>
+        <div class="qf">🏭&nbsp;倉庫：${esc(whName)}<br>📅&nbsp;日付：${esc(date)}<br>🕐&nbsp;発行：${nowTime()}</div>
+        <div class="qh">下のQRコードをスマートフォンでスキャンし、受領確認のサインをお願いします。</div>
+      </div>
+      <div class="qr-img-wrap"><img src="${qrDataUrl}"><div class="qk">${esc(token)}</div></div>
+    </div>`;
+    setPrintPageStyle(`@media print {
+      @page { size: A5 portrait; margin: 8mm 10mm; }
+      .qp { display: flex; flex-direction: column; align-items: center; page-break-inside: avoid; page-break-after: avoid; }
+      .ql { width: 100%; padding-bottom: 4mm; border-bottom: 2px solid #000; margin-bottom: 4mm; }
+      .qt { font-size: 9px; color: #000; margin-bottom: 3mm; letter-spacing: 1px; }
+      .qc { font-size: 24px; font-weight: 700; color: #000; margin-bottom: 3mm; line-height: 1.2; }
+      .qf { font-size: 11px; color: #000; line-height: 2.0; }
+      .qh { font-size: 9px; color: #333; margin-top: 3mm; line-height: 1.6; }
+      .qr-img-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; }
+      .qr-img-wrap img { width: 72mm; height: 72mm; }
+      .qk { font-size: 6px; color: #666; margin-top: 2mm; word-break: break-all; text-align: center; max-width: 72mm; }
+    }`);
+    // オーバーレイをDOMから完全削除してから印刷（背景が2ページ目に出るのを防ぐ）
+    overlay.remove();
+    setTimeout(()=>{
+      window.print();
+      setTimeout(()=>{
+        printArea.innerHTML='';
+      },1500);
+    },100);
+  };
 }
 window.clearEditSign=async function(signKey){
   if(!confirm('このサインを削除しますか？'))return;
@@ -4685,11 +4629,29 @@ async function fetchDayShip(date){
   if(date===today())return state.shipData[today()]||{};
   const snap=await get(ref(db,whPath(`shipData/${date}`)));return snap.val()||{};
 }
+async function fetchDayInbound(date){
+  // 今日分はメモリから、過去分はFirebaseから取得
+  if(date===today()){
+    return{
+      charter:todayCharterRows,
+      truck:todayTruckRows,
+      container:todayContainerRows
+    };
+  }
+  const snap=await get(ref(db,whPath(`inboundData/${date}`)));
+  const d=snap.val()||{};
+  return{
+    charter:d.charter?Object.values(d.charter):[],
+    truck:d.truck?Object.values(d.truck):[],
+    container:d.container?Object.values(d.container):[]
+  };
+}
 
 // 動的キャリアのIDは日次データとして保存されるので、すべてのキャリア（マスター＋動的）をそのまま参照
 async function getAllRecordRows(date){
   const dayRec=await fetchDayRecords(date);
   const dayShip=await fetchDayShip(date);
+  const dayInbound=await fetchDayInbound(date);
   const reqTimeSnap=await get(ref(db,whPath('reqTime')));
   const reqTimeData=reqTimeSnap.val()||{};
   const rows=[];
@@ -4707,7 +4669,7 @@ async function getAllRecordRows(date){
     if(entryN===1) processedBase.add(baseKey);
 
     let c=state.carriers.find(x=>x.id.replace(/[.#$/[\]]/g,'_')===baseKey);
-    let dynInfo={realCarrier:'',carNum:'',reqTime:''};
+    let dynInfo={realCarrier:'',carNum:'',reqTime:'',dest:'',origin:''};
 
     if(!c){
       const allDyn=getDynCarriers();
@@ -4716,6 +4678,7 @@ async function getAllRecordRows(date){
         dynInfo.realCarrier=c._realCarrier||'';
         dynInfo.carNum=c._carNum||'';
         dynInfo.reqTime=c._time||'';
+        dynInfo.dest=c._dest||'';
       }
     }
 
@@ -4737,6 +4700,14 @@ async function getAllRecordRows(date){
       dynInfo.reqTime=reqTimeData[rtKey]||'15:30';
       if(!dynInfo.realCarrier)dynInfo.realCarrier='';
       if(!dynInfo.carNum)dynInfo.carNum='';
+      // inboundDataから納品先・出荷元を取得（当日・過去日付両対応）
+      if(c.type==='spot_charter'){
+        const charterRow=dayInbound.charter.find(r=>r.carrier===c.name);
+        if(charterRow) dynInfo.dest=charterRow.dest||'';
+      } else if(c.type==='truck_in'){
+        const truckRow=dayInbound.truck.find(r=>r.carrier===c.name);
+        if(truckRow) dynInfo.origin=truckRow.origin||'';
+      }
     }
 
     const ship=dayShip[baseKey]||null;
@@ -4773,6 +4744,13 @@ window.renderRecords=async function(){
     const realC=dynInfo?.realCarrier||'—';
     const carN=dynInfo?.carNum||'—';
     const reqT=dynInfo?.reqTime||'—';
+    // 実車名列：チャーターは「実車名／納品先」、トラックは「出荷元」を同じ列に表示
+    let realCCell=esc(realC);
+    if(c.type==='spot_charter'&&dynInfo?.dest){
+      realCCell=`${esc(realC)}<br><span style="font-size:10px;color:var(--co600);">📍${esc(dynInfo.dest)}</span>`;
+    } else if((c.type==='truck_in')&&dynInfo?.origin){
+      realCCell=`<span style="font-size:10px;color:var(--bl600);">📦${esc(dynInfo.origin)}</span>`;
+    }
     const cid=recKey||c.id.replace(/[.#$/[\]]/g,'_');
     // 持込確認列
     let deliveryCell='—';
@@ -4790,7 +4768,7 @@ window.renderRecords=async function(){
     html+=`<tr>
       <td>${date}</td><td><strong>${esc(c.name)}</strong></td>
       <td><span class="t-badge ${c.type}">${tLabel(c.type)}</span></td>
-      <td>${esc(realC)}</td><td>${esc(carN)}</td><td>${esc(reqT)}</td>
+      <td>${realCCell}</td><td>${esc(carN)}</td><td>${esc(reqT)}</td>
       <td>${rec.enterTime||'—'}</td><td>${rec.loadStartTime||'—'}</td>
       <td>${rec.loadEndTime||'—'}</td><td>${rec.departTime||'—'}</td>
       <td>${pill}</td>
@@ -4824,16 +4802,24 @@ window.downloadExcel=async function(){
   const sn=`${wh?wh.name:'記録'}_${from}${from!==to?'_'+to:''}`.slice(0,31);
   const strings=[];
   function si(s){const v=String(s??'');let i=strings.indexOf(v);if(i===-1){i=strings.length;strings.push(v);}return i;}
-  const headers=['日付','会社名','種別','実車名','車番','依頼時間','入場時間','荷役開始','荷役終了','退場時間','状態','出荷件数','出荷個数','出荷才数','現場サイン','ドライバーサイン'];
+  const headers=['日付','会社名','種別','実車名/納品先/出荷元','車番','依頼時間','入場時間','荷役開始','荷役終了','退場時間','状態','出荷件数','出荷個数','出荷才数','現場サイン','ドライバーサイン'];
   headers.forEach(h=>si(h));
-  const dm=allRows.map(({date,c,rec,ship,dynInfo})=>[
-    date,c.name,tLabel(c.type),
-    dynInfo?.realCarrier||'',dynInfo?.carNum||'',dynInfo?.reqTime||'',
-    rec.enterTime||'',rec.loadStartTime||'',rec.loadEndTime||'',rec.departTime||'',
-    rec.departTime?'完了':'進行中',
-    ship?.count??'',ship?.qty??'',ship?.vol??'',
-    rec.fieldSign?'':'(なし)',rec.driverSign?'':'(なし)'
-  ]);
+  const dm=allRows.map(({date,c,rec,ship,dynInfo})=>{
+    let realCVal=dynInfo?.realCarrier||'';
+    if(c.type==='spot_charter'&&dynInfo?.dest){
+      realCVal=realCVal?`${realCVal} / 納品先:${dynInfo.dest}`:`納品先:${dynInfo.dest}`;
+    } else if(c.type==='truck_in'&&dynInfo?.origin){
+      realCVal=realCVal?`${realCVal} / 出荷元:${dynInfo.origin}`:`出荷元:${dynInfo.origin}`;
+    }
+    return[
+      date,c.name,tLabel(c.type),
+      realCVal,dynInfo?.carNum||'',dynInfo?.reqTime||'',
+      rec.enterTime||'',rec.loadStartTime||'',rec.loadEndTime||'',rec.departTime||'',
+      rec.departTime?'完了':'進行中',
+      ship?.count??'',ship?.qty??'',ship?.vol??'',
+      rec.fieldSign?'':'(なし)',rec.driverSign?'':'(なし)'
+    ];
+  });
   dm.forEach(r=>r.forEach(v=>si(v)));
   function xe(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');}
   function cl(n){return n<26?String.fromCharCode(65+n):`${String.fromCharCode(64+Math.floor(n/26))}${String.fromCharCode(65+(n%26))}`;}
@@ -4953,7 +4939,7 @@ window.addEventListener('beforeunload',()=>{
     const ce=document.getElementById(`sc-${k}`),qe=document.getElementById(`sq-${k}`),ve=document.getElementById(`sv-${k}`);
     if(!ce)return;
     const updated={count:ce.value??'',qty:qe.value??'',vol:ve.value??''};
-    const url=`https://logitime-86b56-default-rtdb.asia-southeast1.firebasedatabase.app/warehouses/${CWH}/shipData/${today()}/${k}.json`;
+    const url=`https://juki-logitime-default-rtdb.asia-southeast1.firebasedatabase.app/warehouses/${CWH}/shipData/${today()}/${k}.json`;
     const blob=new Blob([JSON.stringify(updated)],{type:'application/json'});
     navigator.sendBeacon(url,blob);
   });
