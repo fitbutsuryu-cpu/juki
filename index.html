@@ -3774,36 +3774,44 @@ window.delWH=async function(id){
 // ===== Firebase =====
 async function fbSetRecord(cid,rec,overrideKey=null){
   const k=overrideKey||cid.replace(/[.#$/[\]]/g,'_');
-  // 会社名・種別・実車情報をスナップショットとして保存（マスター/動的入力削除後も残るように）
-  if(!rec._name){
-    const c=getAllCById(cid);
-    if(c){
-      rec._name=c.name;
-      rec._type=c.type;
-      if(c._dyn){
-        if(c.type==='spot_charter'){
-          rec._realCarrier=c._realCarrier||'';
-          rec._carNum=c._carNum||'';
-          rec._carType=c._carType||'';
-          rec._dest=c._dest||'';
-        } else if(c.type==='truck_in'){
-          rec._carNum=c._carNum||'';
-          // トラック入庫のoriginはinboundDataから取得
+  // 会社名・種別・実車情報・依頼時間・納品先・出荷元は「未保存のフィールドのみ」個別にスナップショット保存する。
+  // rec._nameの有無で全体をゲートしない（再入場等で_nameだけ先に入るケースでも各項目が漏れなく保存されるように）。
+  const c=getAllCById(cid);
+  if(c){
+    if(!rec._name) rec._name=c.name;
+    if(!rec._type) rec._type=c.type;
+    if(c._dyn){
+      if(c.type==='spot_charter'){
+        if(!rec._realCarrier) rec._realCarrier=c._realCarrier||'';
+        if(!rec._carNum) rec._carNum=c._carNum||'';
+        if(!rec._carType) rec._carType=c._carType||'';
+        if(!rec._dest) rec._dest=c._dest||'';
+        if(!rec._reqTime){rec._reqTime=c._time||'';rec._reqTimeConfirmed=true;}
+      } else if(c.type==='truck_in'){
+        if(!rec._carNum) rec._carNum=c._carNum||'';
+        if(!rec._reqTime){rec._reqTime=c._time||'';rec._reqTimeConfirmed=true;}
+        if(!rec._origin){
           const truckRow=todayTruckRows.find(r=>r.carrier===c.name)||masterTruckRows.find(r=>r.carrier===c.name);
           if(truckRow) rec._origin=truckRow.origin||'';
-        } else if(c.type==='container_in'){
-          rec._carNum=c.name||'';
         }
-      } else {
-        // マスター登録会社の依頼時間・納品先・出荷元もスナップショット保存
-        if(!rec._reqTime) rec._reqTime=getReqTime(cid);
-        if(c.type==='spot_charter'){
-          const charterRow=todayCharterRows.find(r=>r.carrier===c.name)||masterCharterRows.find(r=>r.carrier===c.name);
-          if(charterRow&&!rec._dest) rec._dest=charterRow.dest||'';
-        } else if(c.type==='truck_in'){
-          const truckRow=todayTruckRows.find(r=>r.carrier===c.name)||masterTruckRows.find(r=>r.carrier===c.name);
-          if(truckRow&&!rec._origin) rec._origin=truckRow.origin||'';
-        }
+      } else if(c.type==='container_in'){
+        if(!rec._carNum) rec._carNum=c.name||'';
+        if(!rec._reqTime){rec._reqTime=c._time||'';rec._reqTimeConfirmed=true;}
+      }
+    } else {
+      // マスター登録会社：依頼時間・納品先・出荷元は入場時刻が確定した時点でスナップショット保存
+      // _reqTimeConfirmed：このフラグが立っているレコードのみ「確実に正しく記録された」スナップショットとして
+      // reqTimeDataの現在値より優先する（過去の不具合期間に誤って書き込まれた値と区別するため）
+      if(rec.enterTime&&!rec._reqTime){
+        rec._reqTime=getReqTime(cid);
+        rec._reqTimeConfirmed=true;
+      }
+      if(rec.enterTime&&c.type==='spot_charter'&&!rec._dest){
+        const charterRow=todayCharterRows.find(r=>r.carrier===c.name)||masterCharterRows.find(r=>r.carrier===c.name);
+        if(charterRow) rec._dest=charterRow.dest||'';
+      } else if(rec.enterTime&&c.type==='truck_in'&&!rec._origin){
+        const truckRow=todayTruckRows.find(r=>r.carrier===c.name)||masterTruckRows.find(r=>r.carrier===c.name);
+        if(truckRow) rec._origin=truckRow.origin||'';
       }
     }
   }
@@ -4281,8 +4289,6 @@ window.doEnter=async function(){
     return;
   }
   rec.enterTime=nowTime();
-  // 依頼時間をレコードに保存（過去記録参照時のため）
-  if(!c._dyn) rec._reqTime=getReqTime(c.id);
   await fbSetRecord(c.id,rec,k||undefined);
   if(!state.records[today()])state.records[today()]={};
   state.records[today()][k||c.id.replace(/[.#$/[\]]/g,'_')]=rec;
@@ -4303,7 +4309,6 @@ window.confirmEnterTimeModal=async function(){
   const n=modal._n||1;
   rec.enterTime=timeVal;
   const c2=getAllCById(modal._cid);
-  if(c2&&!c2._dyn) rec._reqTime=getReqTime(c2.id);
   await fbSetRecord(c.id,rec,k||undefined);
   if(!state.records[today()])state.records[today()]={};
   state.records[today()][k||c.id.replace(/[.#$/[\]]/g,'_')]=rec;
@@ -4411,7 +4416,6 @@ window.confirmCharterModal=async function(){
   const k=reentryKey(c.id,n);
   const rec=lastEntry?{...lastEntry.rec}:{};
   rec.enterTime=nowTime();rec.charterCarrierName=name;rec.charterCarNumber=num;
-  if(!c._dyn) rec._reqTime=getReqTime(c.id);
   await fbSetRecord(c.id,rec,k);
   if(!state.records[today()])state.records[today()]={};
   state.records[today()][k]=rec;
@@ -4753,14 +4757,12 @@ async function showQRPrintPreview(token, carrierName, date){
       .qr-img-wrap img { width: 72mm; height: 72mm; }
       .qk { font-size: 6px; color: #666; margin-top: 2mm; word-break: break-all; text-align: center; max-width: 72mm; }
     }`);
-    // オーバーレイをDOMから完全削除してから印刷（背景が2ページ目に出るのを防ぐ）
+    // オーバーレイをDOMから完全削除してから印刷
     overlay.remove();
-    setTimeout(()=>{
-      window.print();
-      setTimeout(()=>{
-        printArea.innerHTML='';
-      },1500);
-    },100);
+    // window.print()をawaitなしで即座に呼ぶ（Safariのセキュリティ制限対策）
+    window.print();
+    // 印刷後にprint-areaをクリア
+    setTimeout(()=>{ printArea.innerHTML=''; },2000);
   };
 }
 window.clearEditSign=async function(signKey){
@@ -4851,7 +4853,7 @@ async function getAllRecordRows(date){
       dynInfo.realCarrier=rec._realCarrier||'';
       dynInfo.dest=rec._dest||'';
       dynInfo.origin=rec._origin||'';
-      dynInfo.reqTime=rec._reqTime||'';
+      dynInfo.reqTime=rec._reqTimeConfirmed?(rec._reqTime||'15:30'):(reqTimeData[baseKey]||rec._reqTime||'15:30');
       if(savedType==='container_in'){
         dynInfo.carNum=rec._carNum||savedName;
       } else {
@@ -4861,8 +4863,12 @@ async function getAllRecordRows(date){
 
     if(c&&!c._dyn){
       const rtKey=baseKey;
-      // _reqTimeがrecordに保存されていればそれを使用、なければreqTimeDataから取得
-      dynInfo.reqTime=rec._reqTime||reqTimeData[rtKey]||'';
+      // 正しい依頼時間の取得順序：
+      // ①「確実に記録された」rec._reqTime（_reqTimeConfirmed:trueの場合のみ最優先）
+      // ② reqTimeData（マスターの現在値。過去の不具合期間のレコードや未確認レコードのフォールバック）
+      // ③ rec._reqTime（確認フラグはないが値だけ残っている場合の最終フォールバック）
+      // ④ '15:30'（デフォルト）
+      dynInfo.reqTime=rec._reqTimeConfirmed?(rec._reqTime||'15:30'):(reqTimeData[rtKey]||rec._reqTime||'15:30');
       if(!dynInfo.realCarrier)dynInfo.realCarrier='';
       if(!dynInfo.carNum)dynInfo.carNum='';
       // _dest・_originがrecordにあれば優先、なければinboundDataから取得
@@ -4898,7 +4904,7 @@ window.renderRecords=async function(){
   let html=`<table class="rt"><thead><tr>
     <th>日付</th><th>会社名</th><th>種別</th><th>実車名</th><th>車番</th><th>依頼時間</th>
     <th>入場</th><th>荷役開始</th><th>荷役終了</th><th>退場</th><th>状態</th>
-    <th>出荷件数</th><th>出荷個数</th><th>出荷才数</th><th>現場サイン</th><th>ドライバーサイン</th><th>持込確認</th><th>修正</th>
+    <th>出荷件数</th><th>出荷個数</th><th>出荷才数</th><th>現場サイン</th><th>ドライバーサイン</th><th>持込確認</th><th>待機時間</th><th>修正</th>
   </tr></thead><tbody>`;
   allRows.forEach(({date,c,rec,ship,dynInfo,recKey})=>{
     const pill=rec.departTime?`<span class="s-pill c">完了</span>`:`<span class="s-pill p">進行中</span>`;
@@ -4915,6 +4921,34 @@ window.renderRecords=async function(){
       realCCell=`<span style="font-size:10px;color:var(--bl600);">📦${esc(dynInfo.origin)}</span>`;
     }
     const cid=recKey||c.id.replace(/[.#$/[\]]/g,'_');
+
+    // 待機時間の計算
+    // 待機時間 = 荷役開始 - MAX(入場時間, 依頼時間) ※マイナスなら00:00
+    let waitCell='—';
+    if(rec.enterTime&&rec.loadStartTime&&reqT!=='—'){
+      const toMin=t=>{const[h,m]=t.split(':').map(Number);return h*60+m;};
+      const enterMin=toMin(rec.enterTime);
+      const startMin=toMin(rec.loadStartTime);
+      const reqMin=toMin(reqT);
+      // 依頼時間を過ぎた分からカウント
+      const baseMin=Math.max(enterMin,reqMin);
+      const waitMin=Math.max(0,startMin-baseMin);
+      const wh=Math.floor(waitMin/60);
+      const wm=waitMin%60;
+      const waitStr=`${String(wh).padStart(2,'0')}:${String(wm).padStart(2,'0')}`;
+      const isOver30=waitMin>=30;
+      waitCell=`<span style="${isOver30?'background:#FEF08A;color:#854D0E;font-weight:700;padding:2px 6px;border-radius:4px;':''}">${waitStr}${isOver30?' ⚠️':''}</span>`;
+    } else if(rec.enterTime&&rec.loadStartTime){
+      // 依頼時間がない場合は荷役開始-入場時間のみ
+      const toMin=t=>{const[h,m]=t.split(':').map(Number);return h*60+m;};
+      const waitMin=Math.max(0,toMin(rec.loadStartTime)-toMin(rec.enterTime));
+      const wh=Math.floor(waitMin/60);
+      const wm=waitMin%60;
+      const waitStr=`${String(wh).padStart(2,'0')}:${String(wm).padStart(2,'0')}`;
+      const isOver30=waitMin>=30;
+      waitCell=`<span style="${isOver30?'background:#FEF08A;color:#854D0E;font-weight:700;padding:2px 6px;border-radius:4px;':''}">${waitStr}${isOver30?' ⚠️':''}</span>`;
+    }
+
     // 持込確認列
     let deliveryCell='—';
     if(c.type==='delivery'){
@@ -4938,6 +4972,7 @@ window.renderRecords=async function(){
       <td>${ship?.count??'—'}</td><td>${ship?.qty??'—'}</td><td>${ship?.vol??'—'}</td>
       <td>${fs}</td><td>${ds}</td>
       <td>${deliveryCell}</td>
+      <td style="text-align:center;">${waitCell}</td>
       <td><button class="edit-btn" onclick="openEditModal('${esc(date)}','${esc(cid)}','${esc(c.name)}')">✏️ 修正</button></td>
     </tr>`;
   });
@@ -4965,7 +5000,7 @@ window.downloadExcel=async function(){
   const sn=`${wh?wh.name:'記録'}_${from}${from!==to?'_'+to:''}`.slice(0,31);
   const strings=[];
   function si(s){const v=String(s??'');let i=strings.indexOf(v);if(i===-1){i=strings.length;strings.push(v);}return i;}
-  const headers=['日付','会社名','種別','実車名/納品先/出荷元','車番','依頼時間','入場時間','荷役開始','荷役終了','退場時間','状態','出荷件数','出荷個数','出荷才数','現場サイン','ドライバーサイン'];
+  const headers=['日付','会社名','種別','実車名/納品先/出荷元','車番','依頼時間','入場時間','荷役開始','荷役終了','退場時間','待機時間','状態','出荷件数','出荷個数','出荷才数','現場サイン','ドライバーサイン'];
   headers.forEach(h=>si(h));
   const dm=allRows.map(({date,c,rec,ship,dynInfo})=>{
     let realCVal=dynInfo?.realCarrier||'';
@@ -4974,10 +5009,22 @@ window.downloadExcel=async function(){
     } else if(c.type==='truck_in'&&dynInfo?.origin){
       realCVal=realCVal?`${realCVal} / 出荷元:${dynInfo.origin}`:`出荷元:${dynInfo.origin}`;
     }
+    // 待機時間計算
+    let waitStr='';
+    const reqT=dynInfo?.reqTime||'';
+    if(rec.enterTime&&rec.loadStartTime){
+      const toMin=t=>{const[h,m]=t.split(':').map(Number);return h*60+m;};
+      const enterMin=toMin(rec.enterTime);
+      const startMin=toMin(rec.loadStartTime);
+      const baseMin=reqT?Math.max(enterMin,toMin(reqT)):enterMin;
+      const waitMin=Math.max(0,startMin-baseMin);
+      waitStr=`${String(Math.floor(waitMin/60)).padStart(2,'0')}:${String(waitMin%60).padStart(2,'0')}`;
+    }
     return[
       date,c.name,tLabel(c.type),
       realCVal,dynInfo?.carNum||'',dynInfo?.reqTime||'',
       rec.enterTime||'',rec.loadStartTime||'',rec.loadEndTime||'',rec.departTime||'',
+      waitStr,
       rec.departTime?'完了':'進行中',
       ship?.count??'',ship?.qty??'',ship?.vol??'',
       rec.fieldSign?'':'(なし)',rec.driverSign?'':'(なし)'
@@ -4986,13 +5033,17 @@ window.downloadExcel=async function(){
   dm.forEach(r=>r.forEach(v=>si(v)));
   function xe(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');}
   function cl(n){return n<26?String.fromCharCode(65+n):`${String.fromCharCode(64+Math.floor(n/26))}${String.fromCharCode(65+(n%26))}`;}
-  const CW=[12,24,10,12,8,8,10,10,10,8,9,9,9,9,16,16];
+  // 列幅はheadersの列数(17列)と一致させる
+  const CW=[12,24,10,18,8,8,10,10,10,8,9,9,9,9,9,16,16];
   let sr=`<row r="1" ht="20" customHeight="1">${headers.map((h,i)=>`<c r="${cl(i)}1" t="s" s="1"><v>${strings.indexOf(h)}</v></c>`).join('')}</row>`;
   allRows.forEach((_,ri)=>{const rn=ri+2;sr+=`<row r="${rn}" ht="60" customHeight="1">${dm[ri].map((v,ci)=>`<c r="${cl(ci)}${rn}" t="s" s="2"><v>${strings.indexOf(String(v))}</v></c>`).join('')}</row>`;});
+  // サイン画像の列位置はheadersのインデックスから動的に算出（列構成が変わっても常に一致させる）
+  const fieldSignCol=headers.indexOf('現場サイン');
+  const driverSignCol=headers.indexOf('ドライバーサイン');
   // サイン画像収集（hasDより先に実行）
   for(let i=0;i<allRows.length;i++){
     const{rec}=allRows[i],ri=i+1;
-    for(const[k,col]of[['fieldSign',14],['driverSign',15]]){
+    for(const[k,col]of[['fieldSign',fieldSignCol],['driverSign',driverSignCol]]){
       if(rec[k]){try{const b=await buf(rec[k]);imgs.push({name:`i${imgs.length}.png`,buffer:b});draws.push({row:ri,col,idx:imgs.length-1});}catch(e){console.warn('サイン画像取得失敗:',e);}}
     }
   }
@@ -5111,7 +5162,12 @@ const reqDeb={};
 window.onReqTimeInput=function(cid,val){
   clearTimeout(reqDeb[cid]);
   reqDeb[cid]=setTimeout(async()=>{
+    console.log('reqTime保存:', cid, val, 'path:', `warehouses/${CWH}/reqTime/${cid.replace(/[.#$/[\]]/g,'_')}`);
     await fbSetReqTime(cid,val);
+    console.log('reqTime保存完了');
+    // state.reqTimeも即座に更新
+    if(!state.reqTime)state.reqTime={};
+    state.reqTime[cid.replace(/[.#$/[\]]/g,'_')]=val;
   },1000);
 };
 
@@ -5147,7 +5203,7 @@ function renderMaster(){
         <input type="number" id="sc-${k}" value="${esc(String(sd.count??''))}" placeholder="件数" oninput="onShipInput('${c.id}')">
         <input type="number" id="sq-${k}" value="${esc(String(sd.qty??''))}" placeholder="個数" oninput="onShipInput('${c.id}')">
         <input type="number" id="sv-${k}" value="${esc(String(sd.vol??''))}" placeholder="才数" oninput="onShipInput('${c.id}')">
-        <input type="text" id="rt-${k}" value="${esc(rt)}" placeholder="依頼時間" style="max-width:70px;background:#FFF9C4;" oninput="onReqTimeInput('${c.id}',this.value)" title="入場依頼時間">
+        <input type="text" id="rt-${k}" data-cid="${esc(c.id)}" value="${esc(rt)}" placeholder="依頼時間" style="max-width:70px;background:#FFF9C4;" title="入場依頼時間">
         <button onclick="saveShipNow('${c.id}')" style="padding:5px 10px;background:var(--bl600);color:#fff;border:none;border-radius:var(--rs);cursor:pointer;font-size:11px;font-weight:600;font-family:inherit;white-space:nowrap;">💾 保存</button>
       </div>
       <div style="font-size:10px;color:var(--th);margin-top:3px;display:flex;align-items:center;gap:8px;">
@@ -5157,6 +5213,21 @@ function renderMaster(){
     </div>`;
   }).join('');
   initCarrierDragSort(list);
+  // 依頼時間入力欄のイベントリスナーを直接登録（oninput属性はmoduleスコープで動かない場合があるため）
+  list.querySelectorAll('input[data-cid]').forEach(input=>{
+    input.addEventListener('input',function(){
+      const cid=this.dataset.cid;
+      const val=this.value;
+      clearTimeout(reqDeb[cid]);
+      reqDeb[cid]=setTimeout(async()=>{
+        const k=cid.replace(/[.#$/[\]]/g,'_');
+        await set(ref(db,whPath(`reqTime/${k}`)),val);
+        if(!state.reqTime)state.reqTime={};
+        state.reqTime[k]=val;
+        console.log('reqTime保存完了:', k, val);
+      },1000);
+    });
+  });
 }
 
 // ===== 運送会社ドラッグ並べ替え =====
@@ -5697,6 +5768,38 @@ async function cleanOldRecords(){
     }
   }catch(e){console.error('自動削除エラー:',e);}
 }
+
+// ===== 緊急修正：誤って書き込まれた_reqTimeを削除 =====
+// バグで全レコードに_reqTime:15:30が書き込まれた場合に使用
+window.fixReqTime=async function(){
+  if(!confirm('過去90日分のレコードから誤った_reqTimeを削除します。よろしいですか？'))return;
+  toast('修正中...');
+  const reqTimeSnap=await get(ref(db,whPath('reqTime')));
+  const reqTimeData=reqTimeSnap.val()||{};
+  const recSnap=await get(ref(db,whPath('records')));
+  const allRecs=recSnap.val()||{};
+  let count=0;
+  const promises=[];
+  Object.entries(allRecs).forEach(([date,dayRec])=>{
+    Object.entries(dayRec).forEach(([k,rec])=>{
+      if(rec._reqTime){
+        // reqTimeDataの正しい値と比較
+        const correct=reqTimeData[k];
+        // _reqTimeが正しいreqTimeDataの値と異なる場合は削除（誤書き込み）
+        // または入場時刻がない（入場前に書き込まれた）場合も削除
+        if(!rec.enterTime||!correct||(rec._reqTime===correct)){
+          // 入場時刻がない場合は誤書き込みなので削除
+          if(!rec.enterTime){
+            promises.push(set(ref(db,whPath(`records/${date}/${k}/_reqTime`)),null));
+            count++;
+          }
+        }
+      }
+    });
+  });
+  await Promise.all(promises);
+  toast(`✅ ${count}件修正しました。ページをリロードしてください。`);
+};
 
 // ===== 日付変更の自動検知 =====
 let lastCheckedDate=today();
